@@ -24,6 +24,29 @@ Input "bundles" containing reference genomes and annotations are available for u
 ### Help
 We answer questions through github issues on this repository, and also have compiled a list of [common errors](https://github.com/wustl-oncology/analysis-wdls/blob/main/docs/common_errors.md) that may be useful.
 
+## Long-read pVACnc test module
+
+`definitions/pvacnc_longread.wdl` is a standalone PacBio HiFi pVACnc test
+workflow. It is not yet called by `definitions/immuno_longread.wdl`.
+
+The module consumes the completed Long-read workflow's RNA BAM, existing
+StringTie3 `-L -e` GTF, indexed VEP/DNA/RNA/GX/TX-annotated VCF, phased
+proximal VCF, and matched reference files. It runs a second StringTie3 `-L`
+assembly without `-e`, then processes both the `-e` and no-`-e` GTFs through
+parallel ORFanage and TransDecoder lanes. Each lane creates a separate
+synthetic pVACseq VCF and pVACseq/pVACview-compatible result set.
+
+The source VCF is selected directly from the Long-read VCF annotation
+subworkflow; canonical `Combined.all_epitopes.tsv` is not an input. The
+module currently reuses `jinglunli/pvacnc:0.2.3`, while ORFanage,
+TransDecoder and pVACtools retain their own pinned images.
+
+`definitions/subworkflows/pvacseq_longread_annotation.wdl` now owns the
+Long-read RNA bam-readcount and StringTie GX/TX VCF annotation calls. The
+canonical `pvacseq_longread.wdl` invokes the same subworkflow, preserving its
+pVACseq command/settings while making its indexed annotated VCF an explicit
+reusable boundary for pVACnc.
+
 ## Contributions
 
 A big thanks to all of the developers, bioinformaticians, and scientists who built this resource. For a complete list of software contributions, i.e. commits, to this repository, please see the GitHub Contributors both to [this repository](https://github.com/wustl-oncology/analysis-wdls/graphs/contributors) as well as to the [analysis-workflows](https://github.com/genome/analysis-workflows/graphs/contributors) repo.
