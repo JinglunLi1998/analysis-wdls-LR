@@ -1,9 +1,6 @@
 version 1.0
 
-import "./subworkflows/bam_readcount.wdl" as br
-import "./subworkflows/vcf_readcount_annotator.wdl" as vra
-import "./tools/vcf_expression_annotator.wdl" as vea
-import "./tools/index_vcf.wdl" as iv
+import "./subworkflows/pvacseq_longread_annotation.wdl" as annotation
 import "./tools/pvacseq.wdl" as p
 import "./tools/pvacseq_aggregated_report_to_preferred_transcripts_list.wdl" as ptl
 import "./tools/variants_to_table.wdl" as vtt
@@ -127,56 +124,29 @@ workflow pvacseqLongread {
   }
 
   # No indel_counting_bam: SNVs and indels are both counted off the minimap2
-  # bam. See the header note.
-  call br.bamReadcount as tumorRnaBamReadcount {
+  # bam. The shared annotation subworkflow preserves the former calls and
+  # parameters exactly, and exposes the same indexed VCF to pVACseq and pVACnc.
+  call annotation.pvacseqLongreadAnnotation as annotate {
     input:
-    vcf=detect_variants_vcf,
-    vcf_tbi=detect_variants_vcf_tbi,
-    sample=sample_name,
+    detect_variants_vcf=detect_variants_vcf,
+    detect_variants_vcf_tbi=detect_variants_vcf_tbi,
+    sample_name=sample_name,
+    rnaseq_bam=rnaseq_bam,
+    rnaseq_bam_bai=rnaseq_bam_bai,
     reference=reference,
     reference_fai=reference_fai,
     reference_dict=reference_dict,
-    bam=rnaseq_bam,
-    bam_bai=rnaseq_bam_bai,
-    min_base_quality=readcount_minimum_base_quality,
-    min_mapping_quality=readcount_minimum_mapping_quality
-  }
-
-  call vra.vcfReadcountAnnotator as addTumorRnaBamReadcountToVcf {
-    input:
-    vcf=tumorRnaBamReadcount.normalized_vcf,
-    snv_bam_readcount_tsv=tumorRnaBamReadcount.snv_bam_readcount_tsv,
-    indel_bam_readcount_tsv=tumorRnaBamReadcount.indel_bam_readcount_tsv,
-    data_type="RNA",
-    sample_name=sample_name
-  }
-
-  call vea.vcfExpressionAnnotator as addGeneExpressionDataToVcf {
-    input:
-    vcf=addTumorRnaBamReadcountToVcf.annotated_bam_readcount_vcf,
-    expression_file=gene_expression_file,
-    expression_tool=expression_tool,
-    data_type="gene",
-    sample_name=sample_name
-  }
-
-  call vea.vcfExpressionAnnotator as addTranscriptExpressionDataToVcf {
-    input:
-    vcf=addGeneExpressionDataToVcf.annotated_expression_vcf,
-    expression_file=transcript_expression_file,
-    expression_tool=expression_tool,
-    data_type="transcript",
-    sample_name=sample_name
-  }
-
-  call iv.indexVcf as index {
-    input: vcf=addTranscriptExpressionDataToVcf.annotated_expression_vcf
+    readcount_minimum_base_quality=readcount_minimum_base_quality,
+    readcount_minimum_mapping_quality=readcount_minimum_mapping_quality,
+    gene_expression_file=gene_expression_file,
+    transcript_expression_file=transcript_expression_file,
+    expression_tool=expression_tool
   }
 
   call p.pvacseq as ps {
     input:
-    input_vcf=index.indexed_vcf,
-    input_vcf_tbi=index.indexed_vcf_tbi,
+    input_vcf=annotate.annotated_vcf,
+    input_vcf_tbi=annotate.annotated_vcf_tbi,
     sample_name=sample_name,
     alleles=alleles,
     prediction_algorithms=prediction_algorithms,
@@ -229,8 +199,8 @@ workflow pvacseqLongread {
     reference=reference,
     reference_fai=reference_fai,
     reference_dict=reference_dict,
-    vcf=index.indexed_vcf,
-    vcf_tbi=index.indexed_vcf_tbi,
+    vcf=annotate.annotated_vcf,
+    vcf_tbi=annotate.annotated_vcf_tbi,
     fields=variants_to_table_fields,
     genotype_fields=variants_to_table_genotype_fields
   }
@@ -243,7 +213,7 @@ workflow pvacseqLongread {
 
     call avftt.addVepFieldsToTable as addVepFieldsToTableWithPreferredTranscriptsTsv {
       input:
-      vcf=index.indexed_vcf,
+      vcf=annotate.annotated_vcf,
       vep_fields=vep_to_table_fields,
       tsv=variantsToTable.variants_tsv,
       prefix=prefix,
@@ -253,7 +223,7 @@ workflow pvacseqLongread {
   if (length(select_all([ps.mhc_i_aggregated_report, ps.mhc_ii_aggregated_report])) == 0 ) {
     call avftt.addVepFieldsToTable as addVepFieldsToTableWithoutPreferredTranscriptsTsv {
       input:
-      vcf=index.indexed_vcf,
+      vcf=annotate.annotated_vcf,
       vep_fields=vep_to_table_fields,
       tsv=variantsToTable.variants_tsv,
       prefix=prefix
@@ -261,8 +231,8 @@ workflow pvacseqLongread {
   }
 
   output {
-    File annotated_vcf = index.indexed_vcf
-    File annotated_vcf_tbi = index.indexed_vcf_tbi
+    File annotated_vcf = annotate.annotated_vcf
+    File annotated_vcf_tbi = annotate.annotated_vcf_tbi
     File annotated_tsv = select_first([addVepFieldsToTableWithPreferredTranscriptsTsv.annotated_variants_tsv, addVepFieldsToTableWithoutPreferredTranscriptsTsv.annotated_variants_tsv])
     Array[File] mhc_i = ps.mhc_i
     File? mhc_i_log = ps.mhc_i_log
