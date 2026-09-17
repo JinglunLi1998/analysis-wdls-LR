@@ -45,12 +45,14 @@ workflow pvacncLongread {
     Array[Int]? epitope_lengths_class_i
     Array[Int]? epitope_lengths_class_ii
     Int? binding_threshold
-    Int? percentile_threshold
+    Float? binding_percentile_threshold
+    Float? presentation_percentile_threshold
+    Float? immunogenicity_percentile_threshold
     String? percentile_threshold_strategy
     Int? iedb_retries
     String? net_chop_method
     String? top_score_metric
-    String? top_score_metric2
+    Array[String]? top_score_metric2
     Float? net_chop_threshold
     String? additional_report_columns
     Int? fasta_size
@@ -180,7 +182,9 @@ workflow pvacncLongread {
     epitope_lengths_class_i=epitope_lengths_class_i,
     epitope_lengths_class_ii=epitope_lengths_class_ii,
     binding_threshold=binding_threshold,
-    percentile_threshold=percentile_threshold,
+    binding_percentile_threshold=binding_percentile_threshold,
+    presentation_percentile_threshold=presentation_percentile_threshold,
+    immunogenicity_percentile_threshold=immunogenicity_percentile_threshold,
     percentile_threshold_strategy=percentile_threshold_strategy,
     aggregate_inclusion_binding_threshold=aggregate_inclusion_binding_threshold,
     aggregate_inclusion_count_limit=aggregate_inclusion_count_limit,
@@ -231,7 +235,9 @@ workflow pvacncLongread {
     epitope_lengths_class_i=epitope_lengths_class_i,
     epitope_lengths_class_ii=epitope_lengths_class_ii,
     binding_threshold=binding_threshold,
-    percentile_threshold=percentile_threshold,
+    binding_percentile_threshold=binding_percentile_threshold,
+    presentation_percentile_threshold=presentation_percentile_threshold,
+    immunogenicity_percentile_threshold=immunogenicity_percentile_threshold,
     percentile_threshold_strategy=percentile_threshold_strategy,
     aggregate_inclusion_binding_threshold=aggregate_inclusion_binding_threshold,
     aggregate_inclusion_count_limit=aggregate_inclusion_count_limit,

@@ -44,8 +44,19 @@ TransDecoder and pVACtools retain their own pinned images.
 `definitions/subworkflows/pvacseq_longread_annotation.wdl` now owns the
 Long-read RNA bam-readcount and StringTie GX/TX VCF annotation calls. The
 canonical `pvacseq_longread.wdl` invokes the same subworkflow, preserving its
-pVACseq command/settings while making its indexed annotated VCF an explicit
+pVACseq annotation boundary while making its indexed annotated VCF an explicit
 reusable boundary for pVACnc.
+
+### pVACtools 7.1.2 interface
+
+The updated shared `definitions/tools/pvacseq.wdl` pins
+`griffithlab/pvactools:7.1.2`. Long-read canonical pVACseq, pVACsplice,
+pVACfuse and both pVACnc prediction lanes use this same task interface. The
+retired single `percentile_threshold` input has been replaced with optional
+`binding_percentile_threshold`, `presentation_percentile_threshold` and
+`immunogenicity_percentile_threshold` inputs. No replacement threshold is set
+by this repository; leaving them undefined uses pVACtools 7.1.2 defaults.
+`top_score_metric2` is now an optional string array rather than one string.
 
 ## Contributions
 
