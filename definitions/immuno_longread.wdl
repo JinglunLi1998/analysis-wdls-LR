@@ -5,9 +5,15 @@ import "types.wdl"  # !UnusedImport
 import "somatic_germline_wgs_pacbioHifi.wdl" as swgs
 import "rnaseq_pacbioHifi.wdl" as rlr
 import "pvacseq_longread.wdl" as pslr
+import "pvacnc_longread.wdl" as pnc
 import "pvacsplice.wdl" as pspl
 import "pvacfuse_longread.wdl" as pflr
 import "tools/minimap2_ts_to_xs.wdl" as txs
+
+struct Pvacnc {
+  Array[File] orfanage
+  Array[File] transdecoder
+}
 
 # Long-read neoantigen pipeline. The counterpart of immuno.wdl.
 #
@@ -166,6 +172,17 @@ workflow immunoLongread {
     Boolean? allow_incomplete_transcripts
     Array[String]? transcript_prioritization_strategy
     Int? maximum_transcript_support_level
+
+    # =========== pVACnc ============================================
+
+    # Optional noncanonical neoantigen branch. It reuses the expression-
+    # annotated VCF produced for pVACseq, the reference-only StringTie GTF,
+    # and the phased proximal VCF plus its index produced by the somatic arm.
+    Boolean enable_pvacnc = false
+    String pvacnc_orfanage_docker = "quay.io/biocontainers/orfanage:1.2.0--heaafb18_2"
+    String pvacnc_transdecoder_docker = "quay.io/biocontainers/transdecoder:6.0.0--pl5321hdfd78af_0"
+    Int pvacnc_transdecoder_minimum_orf_length = 30
+    String pvacnc_preparation_docker = "jinglunli/pvacnc:0.2.5"
 
     # Coverage / VAF gates. Left unset by default so pVACtools defaults apply.
     # HiFi WGS runs ~20-30x versus 100x+ for exome, and Iso-Seq read counts are
@@ -379,6 +396,79 @@ workflow immunoLongread {
     prefix="variants.final"
   }
 
+  # ---------------- pVACnc ----------------
+  #
+  # The phased VCF index is a first-class output of the somatic workflow and
+  # is passed alongside the VCF. No case-specific .tbi path is required.
+
+  if (enable_pvacnc) {
+    call pnc.pvacncLongread as pvacncWorkflow {
+      input:
+      sample_name=tumor_sample_name,
+      tumor_sample_name=tumor_sample_name,
+      normal_sample_name=normal_sample_name,
+      source_annotated_vcf=pvacseq.annotated_vcf,
+      rnaseq_bam=rna.final_bam,
+      rnaseq_bam_bai=rna.final_bam_bai,
+      with_e_stringtie_gtf=rna.stringtie_transcript_gtf,
+      reference=reference,
+      reference_fai=reference_fai,
+      reference_annotation=reference_annotation,
+      phased_proximal_variants_vcf=somatic.phased_proximal_variants_vcf,
+      phased_proximal_variants_vcf_tbi=somatic.phased_proximal_variants_vcf_tbi,
+      alleles=alleles,
+      prediction_algorithms=prediction_algorithms,
+      peptide_fasta=peptide_fasta,
+      genes_of_interest_file=genes_of_interest_file,
+      stringtie_strand=stringtie_strand,
+      stringtie_cores=stringtie_cores,
+      stringtie_docker=select_first([stringtie_docker_image, "quay.io/biocontainers/stringtie:3.0.3--h29c0135_0"]),
+      orfanage_docker=pvacnc_orfanage_docker,
+      transdecoder_docker=pvacnc_transdecoder_docker,
+      transdecoder_minimum_orf_length=pvacnc_transdecoder_minimum_orf_length,
+      preparation_docker=pvacnc_preparation_docker,
+      epitope_lengths_class_i=epitope_lengths_class_i,
+      epitope_lengths_class_ii=epitope_lengths_class_ii,
+      binding_threshold=binding_threshold,
+      binding_percentile_threshold=binding_percentile_threshold,
+      presentation_percentile_threshold=presentation_percentile_threshold,
+      immunogenicity_percentile_threshold=immunogenicity_percentile_threshold,
+      percentile_threshold_strategy=percentile_threshold_strategy,
+      iedb_retries=iedb_retries,
+      net_chop_method=net_chop_method,
+      top_score_metric=top_score_metric,
+      top_score_metric2=top_score_metric2,
+      net_chop_threshold=net_chop_threshold,
+      additional_report_columns=additional_report_columns,
+      fasta_size=fasta_size,
+      downstream_sequence_length=downstream_sequence_length,
+      exclude_nas=select_first([exclude_nas, false]),
+      minimum_fold_change=minimum_fold_change,
+      normal_cov=normal_cov,
+      tdna_cov=tdna_cov,
+      trna_cov=trna_cov,
+      normal_vaf=normal_vaf,
+      tdna_vaf=tdna_vaf,
+      trna_vaf=trna_vaf,
+      expn_val=expn_val,
+      maximum_transcript_support_level=maximum_transcript_support_level,
+      transcript_prioritization_strategy=transcript_prioritization_strategy,
+      aggregate_inclusion_binding_threshold=aggregate_inclusion_binding_threshold,
+      aggregate_inclusion_count_limit=aggregate_inclusion_count_limit,
+      problematic_amino_acids=problematic_amino_acids,
+      anchor_contribution_threshold=anchor_contribution_threshold,
+      biotypes=biotypes,
+      netmhciipan_version=netmhciipan_version,
+      allele_specific_binding_thresholds=select_first([allele_specific_binding_thresholds, false]),
+      netmhc_stab=select_first([netmhc_stab, false]),
+      run_reference_proteome_similarity=select_first([run_reference_proteome_similarity, false]),
+      allele_specific_anchors=select_first([allele_specific_anchors, false]),
+      allow_incomplete_transcripts=select_first([allow_incomplete_transcripts, false]),
+      tumor_purity=tumor_purity,
+      pvacseq_threads=pvacseq_threads
+    }
+  }
+
   # ---------------- pVACsplice ----------------
   #
   # Only needed when pvacsplice_strand is "unstranded", which sends regtools
@@ -544,6 +634,7 @@ workflow immunoLongread {
     File final_annotated_vcf_tbi = somatic.final_annotated_vcf_tbi
     File vep_summary = somatic.vep_summary
     File phased_proximal_variants_vcf = somatic.phased_proximal_variants_vcf
+    File phased_proximal_variants_vcf_tbi = somatic.phased_proximal_variants_vcf_tbi
 
     # ---------- RNA ----------
     File rna_bam = rna.final_bam
@@ -569,6 +660,37 @@ workflow immunoLongread {
     File pvacseq_annotated_expression_vcf = pvacseq.annotated_vcf
     File pvacseq_annotated_expression_vcf_tbi = pvacseq.annotated_vcf_tbi
     File variants_final_annotated_tsv = pvacseq.annotated_tsv
+
+    # ---------- pVACnc ----------
+    Pvacnc pvacnc = object {
+      "orfanage": flatten([
+        select_all([pvacncWorkflow.no_e_stringtie_gtf]),
+        select_all([pvacncWorkflow.with_e_orfanage_gtf]),
+        select_all([pvacncWorkflow.no_e_orfanage_gtf]),
+        select_all([pvacncWorkflow.orfanage_input_vcf_gz]),
+        select_all([pvacncWorkflow.orfanage_input_vcf_tbi]),
+        select_all([pvacncWorkflow.orfanage_mapping_tsv]),
+        select_all([pvacncWorkflow.orfanage_routing_tsv]),
+        select_all([pvacncWorkflow.orfanage_effects_tsv]),
+        select_first([pvacncWorkflow.orfanage_preparation_outputs, []]),
+        select_first([pvacncWorkflow.orfanage_mhc_i, []]),
+        select_first([pvacncWorkflow.orfanage_mhc_ii, []]),
+        select_first([pvacncWorkflow.orfanage_combined, []])
+      ]),
+      "transdecoder": flatten([
+        select_first([pvacncWorkflow.with_e_transdecoder_outputs, []]),
+        select_first([pvacncWorkflow.no_e_transdecoder_outputs, []]),
+        select_all([pvacncWorkflow.transdecoder_input_vcf_gz]),
+        select_all([pvacncWorkflow.transdecoder_input_vcf_tbi]),
+        select_all([pvacncWorkflow.transdecoder_mapping_tsv]),
+        select_all([pvacncWorkflow.transdecoder_routing_tsv]),
+        select_all([pvacncWorkflow.transdecoder_effects_tsv]),
+        select_first([pvacncWorkflow.transdecoder_preparation_outputs, []]),
+        select_first([pvacncWorkflow.transdecoder_mhc_i, []]),
+        select_first([pvacncWorkflow.transdecoder_mhc_ii, []]),
+        select_first([pvacncWorkflow.transdecoder_combined, []])
+      ])
+    }
 
     # ---------- pVACsplice ----------
     Array[File]? pvacsplice_mhc_i = pvacsplice.mhc_i

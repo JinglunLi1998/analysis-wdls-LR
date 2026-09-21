@@ -20,7 +20,7 @@ task pvacncTransdecoderPrepare {
     File no_e_transdecoder_cdna_fasta
     File no_e_transdecoder_cds_fasta
     File no_e_transdecoder_peptide_fasta
-    String docker_image = "jinglunli/pvacnc:0.2.3"
+    String docker_image = "jinglunli/pvacnc:0.2.5"
   }
 
   runtime {
@@ -61,6 +61,8 @@ task pvacncTransdecoderPrepare {
     File mapping_tsv = "pvacseq_input/~{sample_name}.transdecoder_pvacnc_mapping.tsv"
     File routing_tsv = "results/~{sample_name}.e_first_no_e_rescue_routing.tsv"
     File effects_tsv = "results/~{sample_name}.e_first_no_e_rescue_transdecoder_effects.tsv"
+    File candidate_count_file = "pvacseq_input/~{sample_name}.transdecoder_pvacnc_candidate_count.txt"
+    Int candidate_count = read_int(candidate_count_file)
     Array[File] preparation_outputs = flatten([
       glob("with_e/results/*"),
       glob("no_e/results/*"),
