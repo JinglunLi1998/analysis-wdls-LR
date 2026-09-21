@@ -6,13 +6,13 @@ task pvacncAnnotatePvacview {
     Array[File] source_mhc_i
     Array[File] source_mhc_ii
     Array[File] source_combined
-    String docker_image = "jinglunli/pvacnc:0.2.3"
+    String docker_image = "jinglunli/pvacnc:0.2.5"
   }
 
   runtime {
     preemptible: 1
     maxRetries: 2
-    memory: "4GB"
+    memory: "16GB"
     cpu: 1
     docker: docker_image
     disks: "local-disk 20 HDD"
