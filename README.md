@@ -24,39 +24,31 @@ Input "bundles" containing reference genomes and annotations are available for u
 ### Help
 We answer questions through github issues on this repository, and also have compiled a list of [common errors](https://github.com/wustl-oncology/analysis-wdls/blob/main/docs/common_errors.md) that may be useful.
 
-## Long-read pVACnc test module
+## Long-read pVACnc
 
-`definitions/pvacnc_longread.wdl` is a standalone PacBio HiFi pVACnc test
-workflow. It is not yet called by `definitions/immuno_longread.wdl`.
+Optional noncanonical variant-peptide analysis in `definitions/immuno_longread.wdl`.
+Enable with `immunoLongread.enable_pvacnc: true`, or run
+`definitions/pvacnc_longread.wdl` standalone.
 
-The module consumes the completed Long-read workflow's RNA BAM, existing
-StringTie3 `-L -e` GTF, indexed VEP/DNA/RNA/GX/TX-annotated VCF, phased
-proximal VCF, and matched reference files. It runs a second StringTie3 `-L`
-assembly without `-e`, then processes both the `-e` and no-`-e` GTFs through
-parallel ORFanage and TransDecoder lanes. Each lane creates a separate
-synthetic pVACseq VCF and pVACseq/pVACview-compatible result set.
+- Base: the `immuno_LongRead` workflow with analysis-wdls v1.7.0 merged in.
+- Preparation image: `jinglunli/pvacnc:0.2.5`.
+- pVACtools: `griffithlab/pvactools:7.1.2`.
+- ORF callers: ORFanage 1.2.0 (`BEST`) and TransDecoder 6.0.0
+  (30-aa minimum by default).
 
-The source VCF is selected directly from the Long-read VCF annotation
-subworkflow; canonical `Combined.all_epitopes.tsv` is not an input. The
-module currently reuses `jinglunli/pvacnc:0.2.3`, while ORFanage,
-TransDecoder and pVACtools retain their own pinned images.
+Both callers use StringTie3 `-L -e` models first, with no-`-e` assembly as
+coordinate-level rescue. Each has separate variant projection, VCF,
+pVACseq and pVACview outputs under `pvacnc/orfanage/` and
+`pvacnc/transdecoder/`.
 
-`definitions/subworkflows/pvacseq_longread_annotation.wdl` now owns the
-Long-read RNA bam-readcount and StringTie GX/TX VCF annotation calls. The
-canonical `pvacseq_longread.wdl` invokes the same subworkflow, preserving its
-pVACseq annotation boundary while making its indexed annotated VCF an explicit
-reusable boundary for pVACnc.
+Inputs include the tumor RNA BAM and index, StringTie3 `-e` GTF,
+expression-annotated VEP VCF, MHC alleles and matched references.
+Phased VCF and index are optional for standalone runs and supplied by the
+somatic workflow in full runs. Canonical pVACseq prediction reports are
+not required.
 
-### pVACtools 7.1.2 interface
-
-The updated shared `definitions/tools/pvacseq.wdl` pins
-`griffithlab/pvactools:7.1.2`. Long-read canonical pVACseq, pVACsplice,
-pVACfuse and both pVACnc prediction lanes use this same task interface. The
-retired single `percentile_threshold` input has been replaced with optional
-`binding_percentile_threshold`, `presentation_percentile_threshold` and
-`immunogenicity_percentile_threshold` inputs. No replacement threshold is set
-by this repository; leaving them undefined uses pVACtools 7.1.2 defaults.
-`top_score_metric2` is now an optional string array rather than one string.
+Each caller handles zero candidates independently. pVACview annotation
+requests 16 GB of memory.
 
 ## Contributions
 
