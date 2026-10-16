@@ -182,7 +182,24 @@ workflow immunoLongread {
     String pvacnc_orfanage_docker = "quay.io/biocontainers/orfanage:1.2.0--heaafb18_2"
     String pvacnc_transdecoder_docker = "quay.io/biocontainers/transdecoder:6.0.0--pl5321hdfd78af_0"
     Int pvacnc_transdecoder_minimum_orf_length = 30
-    String pvacnc_preparation_docker = "jinglunli/pvacnc:0.2.5"
+    String pvacnc_preparation_docker = "jinglunli/pvacnc:latest"
+    Boolean enable_pvacnc_riboseq_support = false
+    String pvacnc_riboseq_docker = "jinglunli/pvacnc:latest"
+    Array[File] pvacnc_riboseq_bams = []
+    Array[File] pvacnc_riboseq_bais = []
+    Array[String] pvacnc_riboseq_sample_labels = []
+    Int pvacnc_riboseq_minimum_mapping_quality = 0
+    Int pvacnc_riboseq_minimum_base_quality = 0
+    Int pvacnc_riboseq_minimum_alt_reads = 1
+    Boolean pvacnc_riboseq_exclude_secondary = false
+    Boolean pvacnc_riboseq_exclude_supplementary = false
+    Boolean pvacnc_riboseq_exclude_qcfail = false
+    Boolean pvacnc_riboseq_exclude_duplicates = false
+    File? pvacnc_reference_scores_zip
+    Boolean pvacnc_use_normalized_percentiles = false
+    Boolean pvacnc_run_ml_predictions = false
+    Float? pvacnc_ml_threshold_accept
+    Float? pvacnc_ml_threshold_reject
 
     # Coverage / VAF gates. Left unset by default so pVACtools defaults apply.
     # HiFi WGS runs ~20-30x versus 100x+ for exome, and Iso-Seq read counts are
@@ -427,6 +444,23 @@ workflow immunoLongread {
       transdecoder_docker=pvacnc_transdecoder_docker,
       transdecoder_minimum_orf_length=pvacnc_transdecoder_minimum_orf_length,
       preparation_docker=pvacnc_preparation_docker,
+      enable_riboseq_support=enable_pvacnc_riboseq_support,
+      riboseq_docker=pvacnc_riboseq_docker,
+      riboseq_bams=pvacnc_riboseq_bams,
+      riboseq_bais=pvacnc_riboseq_bais,
+      riboseq_sample_labels=pvacnc_riboseq_sample_labels,
+      riboseq_minimum_mapping_quality=pvacnc_riboseq_minimum_mapping_quality,
+      riboseq_minimum_base_quality=pvacnc_riboseq_minimum_base_quality,
+      riboseq_minimum_alt_reads=pvacnc_riboseq_minimum_alt_reads,
+      riboseq_exclude_secondary=pvacnc_riboseq_exclude_secondary,
+      riboseq_exclude_supplementary=pvacnc_riboseq_exclude_supplementary,
+      riboseq_exclude_qcfail=pvacnc_riboseq_exclude_qcfail,
+      riboseq_exclude_duplicates=pvacnc_riboseq_exclude_duplicates,
+      reference_scores_zip=pvacnc_reference_scores_zip,
+      use_normalized_percentiles=pvacnc_use_normalized_percentiles,
+      run_ml_predictions=pvacnc_run_ml_predictions,
+      ml_threshold_accept=pvacnc_ml_threshold_accept,
+      ml_threshold_reject=pvacnc_ml_threshold_reject,
       epitope_lengths_class_i=epitope_lengths_class_i,
       epitope_lengths_class_ii=epitope_lengths_class_ii,
       binding_threshold=binding_threshold,
@@ -665,8 +699,8 @@ workflow immunoLongread {
     Pvacnc pvacnc = object {
       "orfanage": flatten([
         select_all([pvacncWorkflow.no_e_stringtie_gtf]),
-        select_all([pvacncWorkflow.with_e_orfanage_gtf]),
-        select_all([pvacncWorkflow.no_e_orfanage_gtf]),
+        select_first([pvacncWorkflow.with_e_orfanage_outputs, []]),
+        select_first([pvacncWorkflow.no_e_orfanage_outputs, []]),
         select_all([pvacncWorkflow.orfanage_input_vcf_gz]),
         select_all([pvacncWorkflow.orfanage_input_vcf_tbi]),
         select_all([pvacncWorkflow.orfanage_mapping_tsv]),
@@ -675,7 +709,10 @@ workflow immunoLongread {
         select_first([pvacncWorkflow.orfanage_preparation_outputs, []]),
         select_first([pvacncWorkflow.orfanage_mhc_i, []]),
         select_first([pvacncWorkflow.orfanage_mhc_ii, []]),
-        select_first([pvacncWorkflow.orfanage_combined, []])
+        select_first([pvacncWorkflow.orfanage_combined, []]),
+        select_first([pvacncWorkflow.orfanage_prediction_logs, []]),
+        select_all([pvacncWorkflow.orfanage_pvacview_annotation_log]),
+        select_first([pvacncWorkflow.orfanage_riboseq_support, []])
       ]),
       "transdecoder": flatten([
         select_first([pvacncWorkflow.with_e_transdecoder_outputs, []]),
@@ -688,7 +725,10 @@ workflow immunoLongread {
         select_first([pvacncWorkflow.transdecoder_preparation_outputs, []]),
         select_first([pvacncWorkflow.transdecoder_mhc_i, []]),
         select_first([pvacncWorkflow.transdecoder_mhc_ii, []]),
-        select_first([pvacncWorkflow.transdecoder_combined, []])
+        select_first([pvacncWorkflow.transdecoder_combined, []]),
+        select_first([pvacncWorkflow.transdecoder_prediction_logs, []]),
+        select_all([pvacncWorkflow.transdecoder_pvacview_annotation_log]),
+        select_first([pvacncWorkflow.transdecoder_riboseq_support, []])
       ])
     }
 

@@ -31,7 +31,9 @@ Enable with `immunoLongread.enable_pvacnc: true`, or run
 `definitions/pvacnc_longread.wdl` standalone.
 
 - Base: the `immuno_LongRead` workflow with analysis-wdls v1.7.0 merged in.
-- Preparation image: `jinglunli/pvacnc:0.2.5`.
+- pVACnc interface: aligned with SR interface `0.3.5`.
+- Preparation image: `jinglunli/pvacnc:latest`.
+- Ribo-seq image: `jinglunli/pvacnc:latest` (configured separately).
 - pVACtools: `griffithlab/pvactools:7.1.2`.
 - ORF callers: ORFanage 1.2.0 (`BEST`) and TransDecoder 6.0.0
   (30-aa minimum by default).
@@ -47,8 +49,12 @@ Phased VCF and index are optional for standalone runs and supplied by the
 somatic workflow in full runs. Canonical pVACseq prediction reports are
 not required.
 
-Each caller handles zero candidates independently. pVACview annotation
-requests 16 GB of memory.
+Optional Ribo-seq support produces caller-specific evidence tables without
+changing candidate filtering or pVACview tiers. Zero-candidate lanes skip
+prediction independently; pVACview annotation requests 16 GB.
+
+See [configuration and outputs](docs/pvacnc_longread.md) and the
+[WDL changelog](PVACNC_WDL_CHANGELOG.md).
 
 ## Contributions
 

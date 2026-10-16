@@ -1,45 +1,35 @@
 version 1.0
 
-import "./tools/stringtie3.wdl" as stringtie3
 import "./tools/orfanage.wdl" as orfanage
-import "./tools/transdecoder.wdl" as transdecoder
 import "./tools/pvacnc_prepare.wdl" as prep
 import "./tools/pvacnc_transdecoder_prepare.wdl" as tdprep
 import "./tools/pvacnc_annotate_pvacview.wdl" as view
+import "./tools/pvacnc_riboseq_support.wdl" as riboseq
 import "./tools/pvacseq.wdl" as pvacseq
+import "./tools/stringtie3.wdl" as stringtie3
+import "./tools/transdecoder.wdl" as transdecoder
 
-# PacBio HiFi pVACnc module. It can run standalone from localized upstream
-# outputs and is also called optionally by immunoLongread.
 workflow pvacncLongread {
   input {
     String sample_name
     String tumor_sample_name
     String normal_sample_name
-
-    # From the Long-read shared RNA annotation boundary: VEP, DNA/RNA
-    # readcounts, and StringTie GX/TX are already present.
-    File source_annotated_vcf
     File rnaseq_bam
     File rnaseq_bam_bai
+    String stringtie_strand = "unstranded"
+    Int stringtie_cores = 12
+    String stringtie_docker = "quay.io/biocontainers/stringtie:3.0.3--h29c0135_0"
     File with_e_stringtie_gtf
+    File source_annotated_vcf
     File reference
     File reference_fai
     File reference_annotation
-    File? phased_proximal_variants_vcf
-    File? phased_proximal_variants_vcf_tbi
-
     Array[String] alleles
     Array[String] prediction_algorithms
     File? peptide_fasta
     File? genes_of_interest_file
-
-    String stringtie_strand = "unstranded"
-    Int stringtie_cores = 12
-    String stringtie_docker = "quay.io/biocontainers/stringtie:3.0.3--h29c0135_0"
-    String orfanage_docker = "quay.io/biocontainers/orfanage:1.2.0--heaafb18_2"
-    String transdecoder_docker = "quay.io/biocontainers/transdecoder:6.0.0--pl5321hdfd78af_0"
-    Int transdecoder_minimum_orf_length = 30
-    String preparation_docker = "jinglunli/pvacnc:0.2.5"
+    File? phased_proximal_variants_vcf
+    File? phased_proximal_variants_vcf_tbi
 
     Array[Int]? epitope_lengths_class_i
     Array[Int]? epitope_lengths_class_ii
@@ -73,13 +63,36 @@ workflow pvacncLongread {
     Float? anchor_contribution_threshold
     Array[String]? biotypes
     String? netmhciipan_version
+    File? reference_scores_zip
     Boolean allele_specific_binding_thresholds = false
     Boolean netmhc_stab = false
     Boolean run_reference_proteome_similarity = false
     Boolean allele_specific_anchors = false
     Boolean allow_incomplete_transcripts = false
+    Boolean use_normalized_percentiles = false
     Float? tumor_purity
+    Boolean run_ml_predictions = false
+    Float? ml_threshold_accept
+    Float? ml_threshold_reject
     Int? pvacseq_threads
+
+    String orfanage_docker = "quay.io/biocontainers/orfanage:1.2.0--heaafb18_2"
+    String transdecoder_docker = "quay.io/biocontainers/transdecoder:6.0.0--pl5321hdfd78af_0"
+    Int transdecoder_minimum_orf_length = 30
+    String preparation_docker = "jinglunli/pvacnc:latest"
+
+    Boolean enable_riboseq_support = false
+    String riboseq_docker = "jinglunli/pvacnc:latest"
+    Array[File] riboseq_bams = []
+    Array[File] riboseq_bais = []
+    Array[String] riboseq_sample_labels = []
+    Int riboseq_minimum_mapping_quality = 0
+    Int riboseq_minimum_base_quality = 0
+    Int riboseq_minimum_alt_reads = 1
+    Boolean riboseq_exclude_secondary = false
+    Boolean riboseq_exclude_supplementary = false
+    Boolean riboseq_exclude_qcfail = false
+    Boolean riboseq_exclude_duplicates = false
   }
 
   call stringtie3.stringtie3 as stringtieNoE {
@@ -96,221 +109,294 @@ workflow pvacncLongread {
 
   call orfanage.orfanageBest as withEOrfanage {
     input:
-    stringtie_gtf=with_e_stringtie_gtf,
-    reference_annotation=reference_annotation,
-    reference=reference,
-    output_prefix=sample_name + ".with_e",
-    docker_image=orfanage_docker
+      stringtie_gtf = with_e_stringtie_gtf,
+      reference_annotation = reference_annotation,
+      reference = reference,
+      output_prefix = sample_name + ".with_e.orfanage",
+      docker_image = orfanage_docker
   }
 
   call orfanage.orfanageBest as noEOrfanage {
     input:
-    stringtie_gtf=stringtieNoE.transcript_gtf,
-    reference_annotation=reference_annotation,
-    reference=reference,
-    output_prefix=sample_name + ".no_e",
-    docker_image=orfanage_docker
+      stringtie_gtf = stringtieNoE.transcript_gtf,
+      reference_annotation = reference_annotation,
+      reference = reference,
+      output_prefix = sample_name + ".no_e.orfanage",
+      docker_image = orfanage_docker
   }
 
   call transdecoder.transdecoder as withETransdecoder {
     input:
-    stringtie_gtf=with_e_stringtie_gtf,
-    reference=reference,
-    reference_fai=reference_fai,
-    output_prefix=sample_name + ".with_e.transdecoder",
-    minimum_orf_length=transdecoder_minimum_orf_length,
-    docker_image=transdecoder_docker
+      stringtie_gtf = with_e_stringtie_gtf,
+      reference = reference,
+      reference_fai = reference_fai,
+      output_prefix = sample_name + ".with_e.transdecoder",
+      minimum_orf_length = transdecoder_minimum_orf_length,
+      docker_image = transdecoder_docker
   }
 
   call transdecoder.transdecoder as noETransdecoder {
     input:
-    stringtie_gtf=stringtieNoE.transcript_gtf,
-    reference=reference,
-    reference_fai=reference_fai,
-    output_prefix=sample_name + ".no_e.transdecoder",
-    minimum_orf_length=transdecoder_minimum_orf_length,
-    docker_image=transdecoder_docker
+      stringtie_gtf = stringtieNoE.transcript_gtf,
+      reference = reference,
+      reference_fai = reference_fai,
+      output_prefix = sample_name + ".no_e.transdecoder",
+      minimum_orf_length = transdecoder_minimum_orf_length,
+      docker_image = transdecoder_docker
   }
 
   call prep.pvacncPrepare {
     input:
-    sample_name=sample_name,
-    tumor_sample_name=tumor_sample_name,
-    source_vcf=source_annotated_vcf,
-    reference=reference,
-    reference_fai=reference_fai,
-    reference_annotation=reference_annotation,
-    with_e_orfanage_gtf=withEOrfanage.best_gtf,
-    no_e_orfanage_gtf=noEOrfanage.best_gtf,
-    docker_image=preparation_docker
+      sample_name = sample_name,
+      tumor_sample_name = tumor_sample_name,
+      source_vcf = source_annotated_vcf,
+      reference = reference,
+      reference_fai = reference_fai,
+      reference_annotation = reference_annotation,
+      with_e_orfanage_gtf = withEOrfanage.best_gtf,
+      no_e_orfanage_gtf = noEOrfanage.best_gtf,
+      docker_image = preparation_docker
   }
 
   call tdprep.pvacncTransdecoderPrepare {
     input:
-    sample_name=sample_name,
-    tumor_sample_name=tumor_sample_name,
-    source_vcf=source_annotated_vcf,
-    reference=reference,
-    reference_fai=reference_fai,
-    reference_annotation=reference_annotation,
-    with_e_stringtie_gtf=with_e_stringtie_gtf,
-    with_e_transdecoder_genome_gff3=withETransdecoder.genome_gff3,
-    with_e_transdecoder_transcript_gff3=withETransdecoder.transcript_gff3,
-    with_e_transdecoder_cdna_fasta=withETransdecoder.cdna_fasta,
-    with_e_transdecoder_cds_fasta=withETransdecoder.cds_fasta,
-    with_e_transdecoder_peptide_fasta=withETransdecoder.peptide_fasta,
-    no_e_stringtie_gtf=stringtieNoE.transcript_gtf,
-    no_e_transdecoder_genome_gff3=noETransdecoder.genome_gff3,
-    no_e_transdecoder_transcript_gff3=noETransdecoder.transcript_gff3,
-    no_e_transdecoder_cdna_fasta=noETransdecoder.cdna_fasta,
-    no_e_transdecoder_cds_fasta=noETransdecoder.cds_fasta,
-    no_e_transdecoder_peptide_fasta=noETransdecoder.peptide_fasta,
-    docker_image=preparation_docker
+      sample_name = sample_name,
+      tumor_sample_name = tumor_sample_name,
+      source_vcf = source_annotated_vcf,
+      reference = reference,
+      reference_fai = reference_fai,
+      reference_annotation = reference_annotation,
+      with_e_stringtie_gtf = with_e_stringtie_gtf,
+      with_e_transdecoder_genome_gff3 = withETransdecoder.genome_gff3,
+      with_e_transdecoder_transcript_gff3 = withETransdecoder.transcript_gff3,
+      with_e_transdecoder_cdna_fasta = withETransdecoder.cdna_fasta,
+      with_e_transdecoder_cds_fasta = withETransdecoder.cds_fasta,
+      with_e_transdecoder_peptide_fasta = withETransdecoder.peptide_fasta,
+      no_e_stringtie_gtf = stringtieNoE.transcript_gtf,
+      no_e_transdecoder_genome_gff3 = noETransdecoder.genome_gff3,
+      no_e_transdecoder_transcript_gff3 = noETransdecoder.transcript_gff3,
+      no_e_transdecoder_cdna_fasta = noETransdecoder.cdna_fasta,
+      no_e_transdecoder_cds_fasta = noETransdecoder.cds_fasta,
+      no_e_transdecoder_peptide_fasta = noETransdecoder.peptide_fasta,
+      docker_image = preparation_docker
   }
 
   if (pvacncPrepare.candidate_count > 0) {
-  call pvacseq.pvacseq as orfanagePredict {
-    input:
-    n_threads=pvacseq_threads,
-    input_vcf=pvacncPrepare.pvacnc_input_vcf_gz,
-    input_vcf_tbi=pvacncPrepare.pvacnc_input_vcf_tbi,
-    sample_name=tumor_sample_name,
-    alleles=alleles,
-    prediction_algorithms=prediction_algorithms,
-    peptide_fasta=peptide_fasta,
-    genes_of_interest_file=genes_of_interest_file,
-    epitope_lengths_class_i=epitope_lengths_class_i,
-    epitope_lengths_class_ii=epitope_lengths_class_ii,
-    binding_threshold=binding_threshold,
-    binding_percentile_threshold=binding_percentile_threshold,
-    presentation_percentile_threshold=presentation_percentile_threshold,
-    immunogenicity_percentile_threshold=immunogenicity_percentile_threshold,
-    percentile_threshold_strategy=percentile_threshold_strategy,
-    aggregate_inclusion_binding_threshold=aggregate_inclusion_binding_threshold,
-    aggregate_inclusion_count_limit=aggregate_inclusion_count_limit,
-    iedb_retries=iedb_retries,
-    normal_sample_name=normal_sample_name,
-    net_chop_method=net_chop_method,
-    top_score_metric=top_score_metric,
-    top_score_metric2=top_score_metric2,
-    net_chop_threshold=net_chop_threshold,
-    additional_report_columns=additional_report_columns,
-    fasta_size=fasta_size,
-    downstream_sequence_length=downstream_sequence_length,
-    exclude_nas=exclude_nas,
-    phased_proximal_variants_vcf=phased_proximal_variants_vcf,
-    phased_proximal_variants_vcf_tbi=phased_proximal_variants_vcf_tbi,
-    minimum_fold_change=minimum_fold_change,
-    normal_cov=normal_cov,
-    tdna_cov=tdna_cov,
-    trna_cov=trna_cov,
-    normal_vaf=normal_vaf,
-    tdna_vaf=tdna_vaf,
-    trna_vaf=trna_vaf,
-    expn_val=expn_val,
-    tumor_purity=tumor_purity,
-    maximum_transcript_support_level=maximum_transcript_support_level,
-    transcript_prioritization_strategy=transcript_prioritization_strategy,
-    allele_specific_binding_thresholds=allele_specific_binding_thresholds,
-    problematic_amino_acids=problematic_amino_acids,
-    allele_specific_anchors=allele_specific_anchors,
-    anchor_contribution_threshold=anchor_contribution_threshold,
-    netmhc_stab=netmhc_stab,
-    run_reference_proteome_similarity=run_reference_proteome_similarity,
-    biotypes=biotypes,
-    allow_incomplete_transcripts=allow_incomplete_transcripts,
-    netmhciipan_version=netmhciipan_version
-  }
+    call pvacseq.pvacseq as orfanagePredict {
+      input:
+        n_threads = pvacseq_threads,
+        input_vcf = pvacncPrepare.pvacnc_input_vcf_gz,
+        input_vcf_tbi = pvacncPrepare.pvacnc_input_vcf_tbi,
+        sample_name = tumor_sample_name,
+        alleles = alleles,
+        prediction_algorithms = prediction_algorithms,
+        peptide_fasta = peptide_fasta,
+        genes_of_interest_file = genes_of_interest_file,
+        epitope_lengths_class_i = epitope_lengths_class_i,
+        epitope_lengths_class_ii = epitope_lengths_class_ii,
+        binding_threshold = binding_threshold,
+        binding_percentile_threshold = binding_percentile_threshold,
+        presentation_percentile_threshold = presentation_percentile_threshold,
+        immunogenicity_percentile_threshold = immunogenicity_percentile_threshold,
+        percentile_threshold_strategy = percentile_threshold_strategy,
+        iedb_retries = iedb_retries,
+        normal_sample_name = normal_sample_name,
+        net_chop_method = net_chop_method,
+        top_score_metric = top_score_metric,
+        top_score_metric2 = top_score_metric2,
+        net_chop_threshold = net_chop_threshold,
+        additional_report_columns = additional_report_columns,
+        fasta_size = fasta_size,
+        downstream_sequence_length = downstream_sequence_length,
+        exclude_nas = exclude_nas,
+        phased_proximal_variants_vcf = phased_proximal_variants_vcf,
+        phased_proximal_variants_vcf_tbi = phased_proximal_variants_vcf_tbi,
+        minimum_fold_change = minimum_fold_change,
+        normal_cov = normal_cov,
+        tdna_cov = tdna_cov,
+        trna_cov = trna_cov,
+        normal_vaf = normal_vaf,
+        tdna_vaf = tdna_vaf,
+        trna_vaf = trna_vaf,
+        expn_val = expn_val,
+        maximum_transcript_support_level = maximum_transcript_support_level,
+        transcript_prioritization_strategy = transcript_prioritization_strategy,
+        aggregate_inclusion_binding_threshold = aggregate_inclusion_binding_threshold,
+        aggregate_inclusion_count_limit = aggregate_inclusion_count_limit,
+        problematic_amino_acids = problematic_amino_acids,
+        anchor_contribution_threshold = anchor_contribution_threshold,
+        biotypes = biotypes,
+        netmhciipan_version = netmhciipan_version,
+        reference_scores_zip = reference_scores_zip,
+        allele_specific_binding_thresholds = allele_specific_binding_thresholds,
+        netmhc_stab = netmhc_stab,
+        run_reference_proteome_similarity = run_reference_proteome_similarity,
+        allele_specific_anchors = allele_specific_anchors,
+        allow_incomplete_transcripts = allow_incomplete_transcripts,
+        use_normalized_percentiles = use_normalized_percentiles,
+        tumor_purity = tumor_purity,
+        run_ml_predictions = run_ml_predictions,
+        ml_threshold_accept = ml_threshold_accept,
+        ml_threshold_reject = ml_threshold_reject
+    }
 
-  call view.pvacncAnnotatePvacview as orfanageAnnotatePvacview {
-    input:
-    mapping_tsv=pvacncPrepare.mapping_tsv,
-    source_mhc_i=orfanagePredict.mhc_i,
-    source_mhc_ii=orfanagePredict.mhc_ii,
-    source_combined=orfanagePredict.combined,
-    docker_image=preparation_docker
-  }
+    call view.pvacncAnnotatePvacview as orfanageAnnotatePvacview {
+      input:
+        output_prefix = sample_name + ".orfanage",
+        mapping_tsv = pvacncPrepare.mapping_tsv,
+        source_mhc_i = orfanagePredict.mhc_i,
+        source_mhc_ii = orfanagePredict.mhc_ii,
+        source_combined = orfanagePredict.combined,
+        docker_image = preparation_docker
+    }
+
+    if (enable_riboseq_support) {
+      call riboseq.pvacncRiboseqSupport as orfanageRiboseqSupport {
+        input:
+          sample_name = sample_name,
+          caller = "orfanage",
+          mapping_tsv = pvacncPrepare.mapping_tsv,
+          noncanonical_orf_blocks = pvacncPrepare.noncanonical_orf_blocks,
+          reference_annotation = reference_annotation,
+          filtered_report = orfanagePredict.combined_filtered_epitopes,
+          riboseq_bams = riboseq_bams,
+          riboseq_bais = riboseq_bais,
+          riboseq_sample_labels = riboseq_sample_labels,
+          minimum_mapping_quality = riboseq_minimum_mapping_quality,
+          minimum_base_quality = riboseq_minimum_base_quality,
+          minimum_alt_reads = riboseq_minimum_alt_reads,
+          exclude_secondary = riboseq_exclude_secondary,
+          exclude_supplementary = riboseq_exclude_supplementary,
+          exclude_qcfail = riboseq_exclude_qcfail,
+          exclude_duplicates = riboseq_exclude_duplicates,
+          docker_image = riboseq_docker
+      }
+    }
   }
 
   if (pvacncTransdecoderPrepare.candidate_count > 0) {
-  call pvacseq.pvacseq as transdecoderPredict {
-    input:
-    n_threads=pvacseq_threads,
-    input_vcf=pvacncTransdecoderPrepare.pvacnc_input_vcf_gz,
-    input_vcf_tbi=pvacncTransdecoderPrepare.pvacnc_input_vcf_tbi,
-    sample_name=tumor_sample_name,
-    alleles=alleles,
-    prediction_algorithms=prediction_algorithms,
-    peptide_fasta=peptide_fasta,
-    genes_of_interest_file=genes_of_interest_file,
-    epitope_lengths_class_i=epitope_lengths_class_i,
-    epitope_lengths_class_ii=epitope_lengths_class_ii,
-    binding_threshold=binding_threshold,
-    binding_percentile_threshold=binding_percentile_threshold,
-    presentation_percentile_threshold=presentation_percentile_threshold,
-    immunogenicity_percentile_threshold=immunogenicity_percentile_threshold,
-    percentile_threshold_strategy=percentile_threshold_strategy,
-    aggregate_inclusion_binding_threshold=aggregate_inclusion_binding_threshold,
-    aggregate_inclusion_count_limit=aggregate_inclusion_count_limit,
-    iedb_retries=iedb_retries,
-    normal_sample_name=normal_sample_name,
-    net_chop_method=net_chop_method,
-    top_score_metric=top_score_metric,
-    top_score_metric2=top_score_metric2,
-    net_chop_threshold=net_chop_threshold,
-    additional_report_columns=additional_report_columns,
-    fasta_size=fasta_size,
-    downstream_sequence_length=downstream_sequence_length,
-    exclude_nas=exclude_nas,
-    phased_proximal_variants_vcf=phased_proximal_variants_vcf,
-    phased_proximal_variants_vcf_tbi=phased_proximal_variants_vcf_tbi,
-    minimum_fold_change=minimum_fold_change,
-    normal_cov=normal_cov,
-    tdna_cov=tdna_cov,
-    trna_cov=trna_cov,
-    normal_vaf=normal_vaf,
-    tdna_vaf=tdna_vaf,
-    trna_vaf=trna_vaf,
-    expn_val=expn_val,
-    tumor_purity=tumor_purity,
-    maximum_transcript_support_level=maximum_transcript_support_level,
-    transcript_prioritization_strategy=transcript_prioritization_strategy,
-    allele_specific_binding_thresholds=allele_specific_binding_thresholds,
-    problematic_amino_acids=problematic_amino_acids,
-    allele_specific_anchors=allele_specific_anchors,
-    anchor_contribution_threshold=anchor_contribution_threshold,
-    netmhc_stab=netmhc_stab,
-    run_reference_proteome_similarity=run_reference_proteome_similarity,
-    biotypes=biotypes,
-    allow_incomplete_transcripts=allow_incomplete_transcripts,
-    netmhciipan_version=netmhciipan_version
-  }
+    call pvacseq.pvacseq as transdecoderPredict {
+      input:
+        n_threads = pvacseq_threads,
+        input_vcf = pvacncTransdecoderPrepare.pvacnc_input_vcf_gz,
+        input_vcf_tbi = pvacncTransdecoderPrepare.pvacnc_input_vcf_tbi,
+        sample_name = tumor_sample_name,
+        alleles = alleles,
+        prediction_algorithms = prediction_algorithms,
+        peptide_fasta = peptide_fasta,
+        genes_of_interest_file = genes_of_interest_file,
+        epitope_lengths_class_i = epitope_lengths_class_i,
+        epitope_lengths_class_ii = epitope_lengths_class_ii,
+        binding_threshold = binding_threshold,
+        binding_percentile_threshold = binding_percentile_threshold,
+        presentation_percentile_threshold = presentation_percentile_threshold,
+        immunogenicity_percentile_threshold = immunogenicity_percentile_threshold,
+        percentile_threshold_strategy = percentile_threshold_strategy,
+        iedb_retries = iedb_retries,
+        normal_sample_name = normal_sample_name,
+        net_chop_method = net_chop_method,
+        top_score_metric = top_score_metric,
+        top_score_metric2 = top_score_metric2,
+        net_chop_threshold = net_chop_threshold,
+        additional_report_columns = additional_report_columns,
+        fasta_size = fasta_size,
+        downstream_sequence_length = downstream_sequence_length,
+        exclude_nas = exclude_nas,
+        phased_proximal_variants_vcf = phased_proximal_variants_vcf,
+        phased_proximal_variants_vcf_tbi = phased_proximal_variants_vcf_tbi,
+        minimum_fold_change = minimum_fold_change,
+        normal_cov = normal_cov,
+        tdna_cov = tdna_cov,
+        trna_cov = trna_cov,
+        normal_vaf = normal_vaf,
+        tdna_vaf = tdna_vaf,
+        trna_vaf = trna_vaf,
+        expn_val = expn_val,
+        maximum_transcript_support_level = maximum_transcript_support_level,
+        transcript_prioritization_strategy = transcript_prioritization_strategy,
+        aggregate_inclusion_binding_threshold = aggregate_inclusion_binding_threshold,
+        aggregate_inclusion_count_limit = aggregate_inclusion_count_limit,
+        problematic_amino_acids = problematic_amino_acids,
+        anchor_contribution_threshold = anchor_contribution_threshold,
+        biotypes = biotypes,
+        netmhciipan_version = netmhciipan_version,
+        reference_scores_zip = reference_scores_zip,
+        allele_specific_binding_thresholds = allele_specific_binding_thresholds,
+        netmhc_stab = netmhc_stab,
+        run_reference_proteome_similarity = run_reference_proteome_similarity,
+        allele_specific_anchors = allele_specific_anchors,
+        allow_incomplete_transcripts = allow_incomplete_transcripts,
+        use_normalized_percentiles = use_normalized_percentiles,
+        tumor_purity = tumor_purity,
+        run_ml_predictions = run_ml_predictions,
+        ml_threshold_accept = ml_threshold_accept,
+        ml_threshold_reject = ml_threshold_reject
+    }
 
-  call view.pvacncAnnotatePvacview as transdecoderAnnotatePvacview {
-    input:
-    mapping_tsv=pvacncTransdecoderPrepare.mapping_tsv,
-    source_mhc_i=transdecoderPredict.mhc_i,
-    source_mhc_ii=transdecoderPredict.mhc_ii,
-    source_combined=transdecoderPredict.combined,
-    docker_image=preparation_docker
-  }
+    call view.pvacncAnnotatePvacview as transdecoderAnnotatePvacview {
+      input:
+        output_prefix = sample_name + ".transdecoder",
+        mapping_tsv = pvacncTransdecoderPrepare.mapping_tsv,
+        source_mhc_i = transdecoderPredict.mhc_i,
+        source_mhc_ii = transdecoderPredict.mhc_ii,
+        source_combined = transdecoderPredict.combined,
+        docker_image = preparation_docker
+    }
+
+    if (enable_riboseq_support) {
+      call riboseq.pvacncRiboseqSupport as transdecoderRiboseqSupport {
+        input:
+          sample_name = sample_name,
+          caller = "transdecoder",
+          mapping_tsv = pvacncTransdecoderPrepare.mapping_tsv,
+          noncanonical_orf_blocks = pvacncTransdecoderPrepare.noncanonical_orf_blocks,
+          reference_annotation = reference_annotation,
+          filtered_report = transdecoderPredict.combined_filtered_epitopes,
+          riboseq_bams = riboseq_bams,
+          riboseq_bais = riboseq_bais,
+          riboseq_sample_labels = riboseq_sample_labels,
+          minimum_mapping_quality = riboseq_minimum_mapping_quality,
+          minimum_base_quality = riboseq_minimum_base_quality,
+          minimum_alt_reads = riboseq_minimum_alt_reads,
+          exclude_secondary = riboseq_exclude_secondary,
+          exclude_supplementary = riboseq_exclude_supplementary,
+          exclude_qcfail = riboseq_exclude_qcfail,
+          exclude_duplicates = riboseq_exclude_duplicates,
+          docker_image = riboseq_docker
+      }
+    }
   }
 
   output {
     File no_e_stringtie_gtf = stringtieNoE.transcript_gtf
 
-    File with_e_orfanage_gtf = withEOrfanage.best_gtf
-    File no_e_orfanage_gtf = noEOrfanage.best_gtf
+    Array[File] with_e_orfanage_outputs = [withEOrfanage.best_gtf]
+    Array[File] no_e_orfanage_outputs = [noEOrfanage.best_gtf]
+    Int orfanage_candidate_count = pvacncPrepare.candidate_count
     File orfanage_input_vcf_gz = pvacncPrepare.pvacnc_input_vcf_gz
     File orfanage_input_vcf_tbi = pvacncPrepare.pvacnc_input_vcf_tbi
     File orfanage_mapping_tsv = pvacncPrepare.mapping_tsv
+    File orfanage_noncanonical_orf_blocks = pvacncPrepare.noncanonical_orf_blocks
+    File orfanage_skipped_candidates_tsv = pvacncPrepare.skipped_candidates_tsv
     File orfanage_routing_tsv = pvacncPrepare.routing_tsv
     File orfanage_effects_tsv = pvacncPrepare.effects_tsv
-    Int orfanage_candidate_count = pvacncPrepare.candidate_count
     Array[File] orfanage_preparation_outputs = pvacncPrepare.preparation_outputs
     Array[File] orfanage_mhc_i = flatten(select_all([orfanageAnnotatePvacview.mhc_i]))
     Array[File] orfanage_mhc_ii = flatten(select_all([orfanageAnnotatePvacview.mhc_ii]))
+    Array[File] orfanage_prediction_logs = select_all([
+      orfanagePredict.mhc_i_log,
+      orfanagePredict.mhc_ii_log
+    ])
     Array[File] orfanage_combined = flatten(select_all([orfanageAnnotatePvacview.combined]))
+    File? orfanage_pvacview_annotation_log = orfanageAnnotatePvacview.annotation_log
+    Array[File] orfanage_riboseq_support = select_all([
+      orfanageRiboseqSupport.support_by_bam,
+      orfanageRiboseqSupport.allele_summary,
+      orfanageRiboseqSupport.candidate_summary,
+      orfanageRiboseqSupport.run_summary,
+      orfanageRiboseqSupport.orf_support_by_bam,
+      orfanageRiboseqSupport.orf_candidate_summary
+    ])
 
     Array[File] with_e_transdecoder_outputs = [
       withETransdecoder.cdna_fasta,
@@ -328,15 +414,30 @@ workflow pvacncLongread {
       noETransdecoder.genome_gff3,
       noETransdecoder.summary
     ]
+    Int transdecoder_candidate_count = pvacncTransdecoderPrepare.candidate_count
     File transdecoder_input_vcf_gz = pvacncTransdecoderPrepare.pvacnc_input_vcf_gz
     File transdecoder_input_vcf_tbi = pvacncTransdecoderPrepare.pvacnc_input_vcf_tbi
     File transdecoder_mapping_tsv = pvacncTransdecoderPrepare.mapping_tsv
+    File transdecoder_noncanonical_orf_blocks = pvacncTransdecoderPrepare.noncanonical_orf_blocks
+    File transdecoder_skipped_candidates_tsv = pvacncTransdecoderPrepare.skipped_candidates_tsv
     File transdecoder_routing_tsv = pvacncTransdecoderPrepare.routing_tsv
     File transdecoder_effects_tsv = pvacncTransdecoderPrepare.effects_tsv
-    Int transdecoder_candidate_count = pvacncTransdecoderPrepare.candidate_count
     Array[File] transdecoder_preparation_outputs = pvacncTransdecoderPrepare.preparation_outputs
     Array[File] transdecoder_mhc_i = flatten(select_all([transdecoderAnnotatePvacview.mhc_i]))
     Array[File] transdecoder_mhc_ii = flatten(select_all([transdecoderAnnotatePvacview.mhc_ii]))
+    Array[File] transdecoder_prediction_logs = select_all([
+      transdecoderPredict.mhc_i_log,
+      transdecoderPredict.mhc_ii_log
+    ])
     Array[File] transdecoder_combined = flatten(select_all([transdecoderAnnotatePvacview.combined]))
+    File? transdecoder_pvacview_annotation_log = transdecoderAnnotatePvacview.annotation_log
+    Array[File] transdecoder_riboseq_support = select_all([
+      transdecoderRiboseqSupport.support_by_bam,
+      transdecoderRiboseqSupport.allele_summary,
+      transdecoderRiboseqSupport.candidate_summary,
+      transdecoderRiboseqSupport.run_summary,
+      transdecoderRiboseqSupport.orf_support_by_bam,
+      transdecoderRiboseqSupport.orf_candidate_summary
+    ])
   }
 }
