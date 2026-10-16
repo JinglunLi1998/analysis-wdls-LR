@@ -267,8 +267,8 @@ workflow immunoLongread {
     # The genome inside this lib must match `reference` above -- ctat-LR-fusion's
     # --LR_bam kickstart mode assumes the bam was aligned to the same genome, so
     # contig names and lengths have to agree.
-    File star_fusion_genome_lib_zip
-    File agfusion_database
+    File? star_fusion_genome_lib_zip
+    File? agfusion_database
     Boolean agfusion_annotate_noncanonical = true
     # Resume entry point. Set this to an existing AGFusion output directory,
     # zipped, and CTAT-LR-Fusion + AGFusion are both skipped -- pVACfuse runs
@@ -608,11 +608,11 @@ workflow immunoLongread {
       lr_bam=rna.final_bam,
       lr_bam_bai=rna.final_bam_bai,
       agfusion_dir_zip=agfusion_dir_zip,
-      star_fusion_genome_lib_zip=star_fusion_genome_lib_zip,
+      star_fusion_genome_lib_zip=select_first([star_fusion_genome_lib_zip]),
       ctat_cpu=ctat_cpu,
       examine_coding_effect=ctat_examine_coding_effect,
       vis=ctat_vis,
-      agfusion_database=agfusion_database,
+      agfusion_database=select_first([agfusion_database]),
       agfusion_annotate_noncanonical=agfusion_annotate_noncanonical,
       sample_name=tumor_sample_name,
       alleles=alleles,
